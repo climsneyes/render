@@ -10,6 +10,9 @@ ENV/
 *.log
 *.docx
 *.pdf
+!*자치법규*.pdf
+!*재의*제소*.pdf
+!*2026*.pdf
 .DS_Store
 Thumbs.db
 

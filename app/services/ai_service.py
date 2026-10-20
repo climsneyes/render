@@ -5,6 +5,7 @@ from typing import Dict, List, Any, Optional
 import google.generativeai as genai
 from app.config import settings
 from app.api.logs import add_server_log
+from app.services.cache_service import get_or_create_ordinance_cache
 
 
 _cached_available_models: List[str] = []
@@ -429,14 +430,17 @@ def create_analysis_prompt(
         f"**[핵심 임무]**:\n"
         f"1. [검토 대상 조례 원문]의 실제 조문(제1조부터 끝조까지)을 하나하나 짚으며, **'어떤 이유 때문에 적법하다', '어떤 이유 때문에 위법하다'**를 AI가 직접 판정하십시오.\n"
         f"2. 내 조례의 실제 내용이 자치사무인지 기관위임사무인지, 권리제한 규정이 있는지 없는지, 상위법과 충돌하는지 안 하는지를 조례안 문언에 근거하여 확정적으로 판정하십시오.\n"
-        f"3. [참고자료]의 판례/매뉴얼은 위법 판단의 논거 자료로만 활용하십시오.\n\n"
+        f"3. [컨텍스트 캐싱 도서 전수 대조 및 근거 제시]:\n"
+        f"   - 제공된 4대 핵심 도서([2026 자치법규 정비사례집], [자치법규 의견제시 주제별 주요 사례], [자치법규 입안 길라잡이(2026)], [지방자치단체의 재의·제소 조례 모음집])를 전수 대조하여 대법원 판례 번호, 법제처 질의회신 및 정비권고 사유를 정확히 인용하십시오.\n"
+        f"4. [바람직한 수정 문구(대안 조문안) 전수 제시 - 핵심 의무]:\n"
+        f"   - 위법·부당하거나 상위법령과 불일치하는 조항, 또는 권한 한계를 일탈한 조항에 대해서는 [자치법규 입안 길라잡이(2026)]의 표준 입안 기준에 부합하도록, 실무에서 그대로 조례 개정안으로 사용할 수 있는 **'바람직한 수정 문구(안)'를 완전한 조문 형태로 반드시 제시**하십시오.\n\n"
         f"**분석 결과 형식**:\n"
         f"- 반드시 아래 모든 섹션을 포함하여 답변:\n"
         f"  1. [비교분석 요약표(조문별)]\n"
         f"  2. [내 조례의 차별점 요약]\n"
-        f"  3. [원칙별 실질적 위법성 판정 결과] (소관사무, 법률유보, 법령우위 원칙별 직접 판정)\n"
-        f"  4. [실무적 검토 포인트 및 구체적 수정안]\n"
-        f"  5. [상위법령 적합성 종합 판정 및 결론]\n\n"
+        f"  3. [원칙별 실질적 위법성 판정 결과] (소관사무, 법률유보, 법령우위, 권한분립 원칙별 직접 판정 및 관련 대법원 판례 인용)\n"
+        f"  4. [조문별 구체적 위법성 검토 및 바람직한 수정 문구 대비표 (기존 조문 vs 수정 조문안)]\n"
+        f"  5. [상위법령 적합성 종합 판정 및 최종 입법 조치 제안]\n\n"
         f"{sep_line}\n\n"
         f"🚨 **필독: 조례 위법 판단 법리적 가이드라인 (최우선 준수 사항)**\n\n"
         f"**1. 조례 위법 판단의 원칙**\n"
@@ -603,11 +607,31 @@ def call_gemini_api(
 
     last_exception = None
 
+    # Gemini Context Caching 사전 확인 및 획득 시도 (4대 자치법규 전문 도서)
+    cached_content = None
+    try:
+        cached_content = get_or_create_ordinance_cache(api_key, model_name=candidate_models[0])
+        if cached_content:
+            add_server_log("SUCCESS", "CACHE", f"Gemini Context Caching 적용 완료 (캐시 식별자: {getattr(cached_content, 'name', 'OK')})")
+    except Exception as e_cache:
+        add_server_log("WARNING", "CACHE", f"Context Caching 로드 중 예외 발생 ({e_cache}), 표준 모델로 호출합니다.")
+
     for target_model in candidate_models:
         t0 = time.time()
         add_server_log("INFO", "API", f"Gemini 모델 [{target_model}] 호출 시작 (프롬프트: {len(full_prompt):,}자)...")
         try:
-            model = genai.GenerativeModel(target_model, generation_config=generation_config)
+            if cached_content:
+                try:
+                    model = genai.GenerativeModel.from_cached_content(
+                        cached_content=cached_content,
+                        generation_config=generation_config
+                    )
+                except Exception as e_cached_model:
+                    add_server_log("WARNING", "CACHE", f"Cached model 인스턴스화 실패({e_cached_model}), 표준 모델로 전환")
+                    model = genai.GenerativeModel(target_model, generation_config=generation_config)
+            else:
+                model = genai.GenerativeModel(target_model, generation_config=generation_config)
+
             response = model.generate_content(full_prompt)
             elapsed = time.time() - t0
 
