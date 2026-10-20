@@ -43,8 +43,11 @@ def send_error_report(
             )
             msg.attach(part)
 
-        server = smtplib.SMTP(settings.EMAIL_SMTP_SERVER, settings.EMAIL_SMTP_PORT, timeout=10)
-        server.starttls()
+        if settings.EMAIL_SMTP_PORT == 465:
+            server = smtplib.SMTP_SSL(settings.EMAIL_SMTP_SERVER, settings.EMAIL_SMTP_PORT, timeout=10)
+        else:
+            server = smtplib.SMTP(settings.EMAIL_SMTP_SERVER, settings.EMAIL_SMTP_PORT, timeout=10)
+            server.starttls()
         server.login(settings.EMAIL_SENDER, settings.EMAIL_PASSWORD)
         server.send_message(msg)
         server.quit()
