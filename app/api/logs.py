@@ -33,6 +33,13 @@ def add_server_log(level: str, stage: str, message: str, detail: str = ""):
     if len(_logs) > 300:
         _logs = _logs[-300:]
 
+@router.get("/config")
+def get_logs_config():
+    return {
+        "web3forms_key": settings.WEB3FORMS_ACCESS_KEY or "",
+        "recipient": settings.EMAIL_RECEIVER or "lsh4676@korea.kr"
+    }
+
 @router.get("")
 def get_logs():
     return {"logs": _logs}
