@@ -85,8 +85,14 @@ def _send_via_web3forms(
     data = {
         "access_key": settings.WEB3FORMS_ACCESS_KEY.strip(),
         "subject": f"[조례 분석 서비스 오류 제보] {subject}",
-        "from_name": "조례 분석 시스템 오류제보",
+        "from_name": "조례 분석 시스템",
         "message": body,
+    }
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Origin": "https://render-9cqb.onrender.com",
+        "Referer": "https://render-9cqb.onrender.com/"
     }
 
     files = None
@@ -96,7 +102,7 @@ def _send_via_web3forms(
         }
 
     try:
-        response = requests.post(url, data=data, files=files, timeout=15)
+        response = requests.post(url, data=data, files=files, headers=headers, timeout=15)
         res_json = response.json()
         if res_json.get("success"):
             return {
