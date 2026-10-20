@@ -103,7 +103,10 @@ def _send_via_web3forms(
 
     try:
         response = requests.post(url, data=data, files=files, headers=headers, timeout=15)
-        res_json = response.json()
+        try:
+            res_json = response.json()
+        except Exception:
+            res_json = {"success": False, "message": response.text[:200] if response.text else f"HTTP {response.status_code}"}
         if res_json.get("success"):
             return {
                 "success": True,
