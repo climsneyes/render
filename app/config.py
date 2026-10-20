@@ -10,7 +10,12 @@ class Settings(BaseSettings):
     LAW_SEARCH_URL: str = "https://www.law.go.kr/DRF/lawSearch.do"
     LAW_DETAIL_URL: str = "https://www.law.go.kr/DRF/lawService.do"
     
-    # 이메일 설정
+    # 이메일 HTTP API 설정 (Render 등 클라우드 배포 환경용)
+    RESEND_API_KEY: str = os.environ.get("RESEND_API_KEY", "")
+    WEB3FORMS_ACCESS_KEY: str = os.environ.get("WEB3FORMS_ACCESS_KEY", "")
+    BREVO_API_KEY: str = os.environ.get("BREVO_API_KEY", "")
+
+    # 이메일 SMTP 설정 (로컬 환경용)
     EMAIL_SMTP_SERVER: str = os.environ.get("EMAIL_SMTP_SERVER", "smtp.gmail.com")
     EMAIL_SMTP_PORT: int = int(os.environ.get("EMAIL_SMTP_PORT", 587))
     EMAIL_SENDER: str = os.environ.get("EMAIL_SENDER", "")

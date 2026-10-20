@@ -28,4 +28,8 @@ Render 대시보드의 **Environment Variables** 탭에서 아래 변수들을 �
    - 국가법령정보센터 공동이용 오픈API 서비스 인증키 (기본값: `climsneys85`)
 3. **`DEFAULT_GEMINI_MODEL`** (선택)
    - 기본값: `gemini-2.5-flash`
+4. **`RESEND_API_KEY`** (선택 - 오류 제보 이메일 발송용)
+   - Render의 SMTP 포트(25, 465, 587) 차단 정책으로 인해 일반 Gmail SMTP 대신 **Resend HTTP API**를 사용합니다.
+   - [Resend](https://resend.com) 가입 후 `API Keys` 메뉴에서 발급받은 키(`re_...`)를 입력하세요.
+   - 수신자: `EMAIL_RECEIVER` (미입력 시 기본값: `lsh4676@korea.kr`)
 
