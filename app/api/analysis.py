@@ -4,7 +4,6 @@ from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 from app.services.law_service import get_all_superior_laws_content
-from app.services.rag_service import search_rag_context
 from app.services.ai_service import create_analysis_prompt, call_gemini_api
 from app.services.doc_service import create_comparison_document
 from app.config import settings
@@ -55,24 +54,16 @@ def api_run_analysis(req: RunAnalysisRequest):
         if req.superior_laws:
             superior_laws_content = get_all_superior_laws_content(req.superior_laws)
 
-        # 2. RAG 참고자료 검색
-        relevant_guidelines = []
-        if req.use_rag:
-            rag_query = req.pdf_text[:300]
-            if req.superior_laws:
-                rag_query += " " + " ".join(req.superior_laws[:3])
-            relevant_guidelines = search_rag_context(rag_query, top_k=5)
-
-        # 3. 프롬프트 생성
+        # 2. 프롬프트 생성 (Gemini Context Caching 4대 전문 도서 기반 심사)
         prompt = create_analysis_prompt(
             pdf_text=req.pdf_text,
             search_results=req.search_results or [],
             superior_laws_content=superior_laws_content,
-            relevant_guidelines=relevant_guidelines,
+            relevant_guidelines=None,
             is_first_ordinance=req.is_first_ordinance
         )
 
-        # 4. LLM 호출
+        # 3. LLM 호출 (Context Cache 자동 적용)
         analysis_result = call_gemini_api(
             prompt=prompt,
             api_key=api_key,

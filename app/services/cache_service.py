@@ -147,3 +147,4 @@ def get_or_create_ordinance_cache(api_key: str, model_name: str = "gemini-2.5-fl
     except Exception as e:
         add_server_log("WARNING", "CACHE", f"Context Caching 생성 실패 (원인: {str(e)}). 일반 AI 호출로 자동 폴백합니다.")
         return None
+

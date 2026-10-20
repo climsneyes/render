@@ -10,6 +10,7 @@ ENV/
 *.log
 *.docx
 *.pdf
+*.pkl
 !*자치법규*.pdf
 !*재의*제소*.pdf
 !*2026*.pdf
