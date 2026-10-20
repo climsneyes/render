@@ -5,7 +5,7 @@ from typing import Dict, List, Any, Optional
 import google.generativeai as genai
 from app.config import settings
 from app.api.logs import add_server_log
-from app.services.cache_service import get_or_create_ordinance_cache
+from app.services.legal_knowledge_base import LEGAL_KNOWLEDGE_BASE_4_BOOKS
 
 
 _cached_available_models: List[str] = []
@@ -458,6 +458,7 @@ def create_analysis_prompt(
         f"- 2) 주민의 권리를 제한하거나 의무를 부과하면서 법적 근거가 명확히 없는 경우\n"
         f"- 3) 자치사무가 아닌 국가사무를 침해하는 경우\n"
         f"- 그 외에는 '위법 가능성 있음'이라고 판단하지 않는다.\n\n"
+        f"{LEGAL_KNOWLEDGE_BASE_4_BOOKS}\n\n"
         f"{sep_line}\n"
         f"📄 **[검토 대상 조례 원문 시작]**\n"
         f"{sep_line}\n"
@@ -607,31 +608,11 @@ def call_gemini_api(
 
     last_exception = None
 
-    # Gemini Context Caching 사전 확인 및 획득 시도 (4대 자치법규 전문 도서)
-    cached_content = None
-    try:
-        cached_content = get_or_create_ordinance_cache(api_key, model_name=candidate_models[0])
-        if cached_content:
-            add_server_log("SUCCESS", "CACHE", f"Gemini Context Caching 적용 완료 (캐시 식별자: {getattr(cached_content, 'name', 'OK')})")
-    except Exception as e_cache:
-        add_server_log("WARNING", "CACHE", f"Context Caching 로드 중 예외 발생 ({e_cache}), 표준 모델로 호출합니다.")
-
     for target_model in candidate_models:
         t0 = time.time()
-        add_server_log("INFO", "API", f"Gemini 모델 [{target_model}] 호출 시작 (프롬프트: {len(full_prompt):,}자)...")
+        add_server_log("INFO", "API", f"Gemini 모델 [{target_model}] 심층 분석 호출 시작 (프롬프트: {len(full_prompt):,}자)...")
         try:
-            if cached_content:
-                try:
-                    model = genai.GenerativeModel.from_cached_content(
-                        cached_content=cached_content,
-                        generation_config=generation_config
-                    )
-                except Exception as e_cached_model:
-                    add_server_log("WARNING", "CACHE", f"Cached model 인스턴스화 실패({e_cached_model}), 표준 모델로 전환")
-                    model = genai.GenerativeModel(target_model, generation_config=generation_config)
-            else:
-                model = genai.GenerativeModel(target_model, generation_config=generation_config)
-
+            model = genai.GenerativeModel(target_model, generation_config=generation_config)
             response = model.generate_content(full_prompt)
             elapsed = time.time() - t0
 
