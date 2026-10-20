@@ -15,7 +15,7 @@ def get_available_models(api_key: str) -> List[str]:
     if _cached_available_models:
         return _cached_available_models
 
-    fallback_modern = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"]
+    fallback_modern = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
     if not api_key:
         return fallback_modern
 
@@ -26,19 +26,17 @@ def get_available_models(api_key: str) -> List[str]:
             methods = getattr(m, 'supported_generation_methods', []) or []
             if 'generateContent' in methods:
                 name_clean = m.name.replace('models/', '')
-                # 종료/구형 모델 제외
-                if not any(old in name_clean for old in ['gemini-1.0', 'gemini-1.5', 'gemini-2.0']):
+                # 종료/제외 모델 (3.8-flash, 2.5-pro, 1.x, 2.0 제외)
+                if not any(excluded in name_clean for excluded in ['3.8', 'pro', 'gemini-1.0', 'gemini-1.5', 'gemini-2.0']):
                     discovered.append(name_clean)
 
         if discovered:
             def sort_key(name: str):
-                if '3.8-flash' in name:
-                    return 0
-                if '2.5-flash' in name:
+                if '2.5-flash-lite' in name:
                     return 1
-                if '2.5-pro' in name:
-                    return 2
-                return 3
+                if '2.5-flash' in name:
+                    return 0
+                return 2
             discovered.sort(key=sort_key)
             _cached_available_models = discovered
             add_server_log("INFO", "API", f"사용 가능한 Gemini 모델 자동 감지 완료: {discovered}")
@@ -77,7 +75,7 @@ def diagnose_gemini_api(api_key: str) -> Dict[str, Any]:
         for m in available_models:
             if m not in candidate_models:
                 candidate_models.append(m)
-        for m in ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"]:
+        for m in ["gemini-2.5-flash", "gemini-2.5-flash-lite"]:
             if m not in candidate_models:
                 candidate_models.append(m)
 
@@ -592,7 +590,7 @@ def call_gemini_api(
         if m not in candidate_models:
             candidate_models.append(m)
 
-    static_fallbacks = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"]
+    static_fallbacks = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
     for fb in static_fallbacks:
         if fb not in candidate_models:
             candidate_models.append(fb)

@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     GEMINI_API_KEY: str = os.environ.get("GEMINI_API_KEY", os.environ.get("GOOGLE_API_KEY", ""))
     LAW_API_OC: str = os.environ.get("LAW_API_OC", "climsneys85")
-    DEFAULT_GEMINI_MODEL: str = "gemini-3.8-flash"
+    DEFAULT_GEMINI_MODEL: str = "gemini-2.5-flash"
     
     LAW_SEARCH_URL: str = "https://www.law.go.kr/DRF/lawSearch.do"
     LAW_DETAIL_URL: str = "https://www.law.go.kr/DRF/lawService.do"

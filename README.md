@@ -27,4 +27,5 @@ Render 대시보드의 **Environment Variables** 탭에서 아래 변수들을 �
 2. **`LAW_API_OC`** (필수)
    - 국가법령정보센터 공동이용 오픈API 서비스 인증키 (기본값: `climsneys85`)
 3. **`DEFAULT_GEMINI_MODEL`** (선택)
-   - 기본값: `gemini-3.8-flash`
+   - 기본값: `gemini-2.5-flash`
+
