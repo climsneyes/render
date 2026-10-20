@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     EMAIL_SMTP_PORT: int = int(os.environ.get("EMAIL_SMTP_PORT", 587))
     EMAIL_SENDER: str = os.environ.get("EMAIL_SENDER", "")
     EMAIL_PASSWORD: str = os.environ.get("EMAIL_PASSWORD", "")
-    EMAIL_RECEIVER: str = os.environ.get("EMAIL_RECEIVER", "")
+    EMAIL_RECEIVER: str = os.environ.get("EMAIL_RECEIVER", "lsh4676@korea.kr")
 
     class Config:
         env_file = ".env"
