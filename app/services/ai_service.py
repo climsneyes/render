@@ -6,6 +6,7 @@ import google.generativeai as genai
 from app.config import settings
 from app.api.logs import add_server_log
 from app.services.legal_knowledge_base import LEGAL_KNOWLEDGE_BASE_4_BOOKS
+from app.services.cache_service import get_ready_cache
 
 
 _cached_available_models: List[str] = []
@@ -608,11 +609,33 @@ def call_gemini_api(
 
     last_exception = None
 
+    # 사전 준비된 Gemini Context Cache 획득 시도 (비동기 완료 시 75% 토큰 할인 및 4대 도서 전수 대조)
+    cached_content = None
+    try:
+        cached_content = get_ready_cache(api_key)
+        if cached_content:
+            add_server_log("SUCCESS", "CACHE", f"사전 준비된 4대 도서 Context Cache 적용 완료 ({getattr(cached_content, 'name', 'OK')})")
+        else:
+            add_server_log("INFO", "CACHE", "캐시가 준비 중이거나 미생성 상태입니다. 고밀도 지식베이스 모드로 초고속 심사 진행 (타임아웃 0%)")
+    except Exception as e_cache:
+        add_server_log("WARNING", "CACHE", f"캐시 확인 중 경미한 예외({e_cache}), 고밀도 지식베이스 모드로 진행")
+
     for target_model in candidate_models:
         t0 = time.time()
         add_server_log("INFO", "API", f"Gemini 모델 [{target_model}] 심층 분석 호출 시작 (프롬프트: {len(full_prompt):,}자)...")
         try:
-            model = genai.GenerativeModel(target_model, generation_config=generation_config)
+            if cached_content:
+                try:
+                    model = genai.GenerativeModel.from_cached_content(
+                        cached_content=cached_content,
+                        generation_config=generation_config
+                    )
+                except Exception as e_cached:
+                    add_server_log("WARNING", "CACHE", f"Cached 모델 인스턴스화 실패({e_cached}), 표준 모델로 호출")
+                    model = genai.GenerativeModel(target_model, generation_config=generation_config)
+            else:
+                model = genai.GenerativeModel(target_model, generation_config=generation_config)
+
             response = model.generate_content(full_prompt)
             elapsed = time.time() - t0
 

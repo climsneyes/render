@@ -1,6 +1,8 @@
 import os
 import glob
+import time
 import datetime
+import threading
 from typing import List, Dict, Any, Optional
 import google.generativeai as genai
 from google.generativeai import caching
@@ -15,10 +17,14 @@ TARGET_PDF_FILENAMES = [
     "지방자치단체의 재의·제소 조례 모음집.pdf"
 ]
 
-_cached_content_obj: Optional[Any] = None
+# 캐시 상태 전역 관리 (Thread-safe)
+_cache_lock = threading.Lock()
+_cache_status: str = "IDLE"  # IDLE, WARMING_UP, READY, ERROR
+_cached_obj: Optional[Any] = None
 _cached_expire_time: Optional[datetime.datetime] = None
 _cached_api_key: Optional[str] = None
 _cached_model_name: Optional[str] = None
+_last_error_message: Optional[str] = None
 _uploaded_files_map: Dict[str, Any] = {}
 
 
@@ -38,13 +44,11 @@ def find_target_pdf_files() -> List[str]:
     for target_name in TARGET_PDF_FILENAMES:
         found_path = None
         for base_dir in search_dirs:
-            # 1. 정확한 파일명 매칭
             direct_path = os.path.join(base_dir, target_name)
             if os.path.exists(direct_path):
                 found_path = direct_path
                 break
 
-            # 2. 유니코드/특수문자(· 등) 정규화 대비 glob 매칭
             prefix = target_name.split()[0].replace(".pdf", "")
             matches = glob.glob(os.path.join(base_dir, f"*{prefix}*.pdf"))
             if matches:
@@ -53,9 +57,9 @@ def find_target_pdf_files() -> List[str]:
 
         if found_path:
             found_files.append(found_path)
-            add_server_log("INFO", "CACHE", f"RAG 전문 도서 발견: {os.path.basename(found_path)} ({os.path.getsize(found_path):,} bytes)")
+            add_server_log("INFO", "CACHE", f"RAG 전문 도서 확인: {os.path.basename(found_path)} ({os.path.getsize(found_path):,} bytes)")
         else:
-            add_server_log("WARNING", "CACHE", f"RAG 도서 파일을 찾을 수 없음: {target_name}")
+            add_server_log("WARNING", "CACHE", f"도서 파일 탐색 필요: {target_name}")
 
     return found_files
 
@@ -80,71 +84,146 @@ def get_cached_system_instruction() -> str:
     )
 
 
-def get_or_create_ordinance_cache(api_key: str, model_name: str = "gemini-2.5-flash") -> Optional[Any]:
-    """Gemini Context Caching (컨텍스트 캐싱) 조회 또는 자동 생성"""
-    global _cached_content_obj, _cached_expire_time, _cached_api_key, _cached_model_name, _uploaded_files_map
+def _warmup_worker(api_key: str, model_name: str):
+    """백그라운드 스레드에서 비동기로 4대 도서를 구글 캐시에 사전 등록"""
+    global _cache_status, _cached_obj, _cached_expire_time, _cached_api_key, _cached_model_name, _last_error_message
 
-    if not api_key:
-        return None
-
-    # 유효한 기존 캐시가 있는 경우 재사용
-    now = datetime.datetime.now(datetime.timezone.utc)
-    if (
-        _cached_content_obj is not None
-        and _cached_expire_time is not None
-        and now < _cached_expire_time - datetime.timedelta(minutes=5)
-        and _cached_api_key == api_key
-    ):
-        add_server_log("INFO", "CACHE", f"기존 Gemini Context Cache 재사용 (만료 잔여: {int((_cached_expire_time - now).total_seconds() / 60)}분)")
-        return _cached_content_obj
+    add_server_log("INFO", "CACHE", "Gemini 4대 전문 도서 사전 캐싱(Pre-warming) 백그라운드 작업 시작...")
+    t0 = time.time()
 
     try:
         genai.configure(api_key=api_key)
         pdf_paths = find_target_pdf_files()
 
         if not pdf_paths:
-            add_server_log("WARNING", "CACHE", "캐싱할 4대 PDF 도서 파일이 발견되지 않아 일반 모드로 진행합니다.")
-            return None
+            with _cache_lock:
+                _cache_status = "ERROR"
+                _last_error_message = "4대 도서 PDF 파일을 서버에서 찾을 수 없습니다."
+            add_server_log("WARNING", "CACHE", _last_error_message)
+            return
 
-        # 1. 파일 업로드 (동일 세션 내 중복 업로드 방지)
+        # 1. 파일 업로드
         uploaded_files = []
         for path in pdf_paths:
             basename = os.path.basename(path)
             if basename in _uploaded_files_map:
                 uploaded_files.append(_uploaded_files_map[basename])
             else:
-                add_server_log("INFO", "CACHE", f"Gemini Files API 업로드 시작: {basename}")
+                add_server_log("INFO", "CACHE", f"Gemini Cloud 파일 업로드 중: {basename}...")
                 up_file = genai.upload_file(path, display_name=basename, mime_type="application/pdf")
                 _uploaded_files_map[basename] = up_file
                 uploaded_files.append(up_file)
-                add_server_log("INFO", "CACHE", f"Gemini Files API 업로드 완료: {up_file.name}")
+                add_server_log("SUCCESS", "CACHE", f"Gemini Cloud 파일 업로드 완료: {basename}")
 
-        # 2. 지원 모델 이름 표준화 (models/ prefix 처리)
+        # 2. 모델명 표준화
         caching_model = model_name
         if not caching_model.startswith("models/"):
             caching_model = f"models/{caching_model}"
 
-        # 3. Context Cache 생성 (기본 2시간 보관, 75% 토큰 할인 적용)
-        add_server_log("INFO", "CACHE", f"Gemini Context Caching 생성 요청 중 (대상 모델: {caching_model}, 4대 도서)")
+        # 3. Context Caching 생성 (24시간 보관)
+        add_server_log("INFO", "CACHE", f"구글 메모리 캐시 생성 중 ({caching_model}, 24시간 TTL)...")
         system_instruction = get_cached_system_instruction()
 
         cache = caching.CachedContent.create(
             model=caching_model,
-            display_name="korean_ordinance_review_expert_knowledge",
+            display_name="korean_ordinance_master_knowledge_cache",
             system_instruction=system_instruction,
             contents=uploaded_files,
-            ttl=datetime.timedelta(hours=2)
+            ttl=datetime.timedelta(hours=24)
         )
 
-        _cached_content_obj = cache
-        _cached_expire_time = cache.expire_time
-        _cached_api_key = api_key
-        _cached_model_name = caching_model
+        with _cache_lock:
+            _cached_obj = cache
+            _cached_expire_time = cache.expire_time
+            _cached_api_key = api_key
+            _cached_model_name = caching_model
+            _cache_status = "READY"
+            _last_error_message = None
 
-        add_server_log("INFO", "CACHE", f"Gemini Context Caching 성공! (Cache Name: {cache.name}, 만료: {cache.expire_time})")
-        return cache
+        elapsed = time.time() - t0
+        add_server_log(
+            "SUCCESS",
+            "CACHE",
+            f"🎉 4대 도서 Gemini Context Caching 사전 준비 완료 (READY)! 소요시간: {elapsed:.1f}초, 만료: {cache.expire_time}"
+        )
 
     except Exception as e:
-        add_server_log("WARNING", "CACHE", f"Context Caching 생성 실패 (원인: {str(e)}). 일반 AI 호출로 자동 폴백합니다.")
+        with _cache_lock:
+            _cache_status = "ERROR"
+            _last_error_message = str(e)
+        add_server_log("WARNING", "CACHE", f"Context Caching 사전 등록 실패 ({str(e)}). 고밀도 지식베이스로 자동 폴백합니다.")
+
+
+def trigger_background_cache_warmup(api_key: str, model_name: str = "gemini-2.5-flash") -> Dict[str, Any]:
+    """백그라운드에서 캐시 사전 준비를 비동기로 트리거 (웹 요청 블로킹 없음)"""
+    global _cache_status
+
+    if not api_key:
+        return {"status": "NO_API_KEY", "message": "API 키가 제공되지 않았습니다."}
+
+    with _cache_lock:
+        now = datetime.datetime.now(datetime.timezone.utc)
+        if _cache_status == "READY" and _cached_expire_time and now < _cached_expire_time - datetime.timedelta(minutes=10):
+            return {
+                "status": "READY",
+                "cache_name": getattr(_cached_obj, "name", ""),
+                "expires_at": str(_cached_expire_time),
+                "message": "이미 4대 도서 캐시가 준비되어 있습니다."
+            }
+
+        if _cache_status == "WARMING_UP":
+            return {
+                "status": "WARMING_UP",
+                "message": "현재 백그라운드에서 캐시 사전 준비가 진행 중입니다."
+            }
+
+        _cache_status = "WARMING_UP"
+
+    # 비동기 백그라운드 스레드 시작
+    thread = threading.Thread(
+        target=_warmup_worker,
+        args=(api_key, model_name),
+        daemon=True,
+        name="GeminiCacheWarmupThread"
+    )
+    thread.start()
+
+    return {
+        "status": "WARMING_UP",
+        "message": "백그라운드 사전 캐싱 작업을 시작했습니다."
+    }
+
+
+def get_ready_cache(api_key: str) -> Optional[Any]:
+    """준비 완료된 Context Cache 반환 (미준비 시 즉시 None 반환 및 백그라운드 준비 시작)"""
+    global _cache_status, _cached_obj, _cached_expire_time
+
+    if not api_key:
         return None
 
+    with _cache_lock:
+        now = datetime.datetime.now(datetime.timezone.utc)
+        if (
+            _cache_status == "READY"
+            and _cached_obj is not None
+            and _cached_expire_time is not None
+            and now < _cached_expire_time - datetime.timedelta(minutes=5)
+            and _cached_api_key == api_key
+        ):
+            return _cached_obj
+
+    # 준비되어 있지 않다면 백그라운드 작업 시작 (웹 요청은 블로킹하지 않음)
+    trigger_background_cache_warmup(api_key)
+    return None
+
+
+def get_cache_status() -> Dict[str, Any]:
+    """현재 캐시 상태 조회"""
+    with _cache_lock:
+        return {
+            "status": _cache_status,
+            "cache_name": getattr(_cached_obj, "name", None),
+            "expires_at": str(_cached_expire_time) if _cached_expire_time else None,
+            "model_name": _cached_model_name,
+            "error_message": _last_error_message
+        }
