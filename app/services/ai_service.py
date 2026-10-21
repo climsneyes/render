@@ -619,8 +619,6 @@ def call_gemini_api(
         "temperature": 0.7,
         "top_p": 0.95,
         "top_k": 40,
-        "presence_penalty": 0.4,
-        "frequency_penalty": 0.4,
         "max_output_tokens": 8192,
     }
 
