@@ -9,11 +9,11 @@ from google.generativeai import caching
 from app.config import settings
 from app.api.logs import add_server_log
 
-# 4대 자치법규 핵심 전문 도서 파일명
+# 4대 자치법규 핵심 전문 도서 중 대용량 판례·사례집 3권 (총 854페이지, 약 64만 토큰)
+# ※ Gemini 2.5 Flash의 1,048,576(100만) 토큰 한도를 완벽히 준수하도록 4번째 입안 길라잡이는 시스템 지침으로 융합
 TARGET_PDF_FILENAMES = [
     "2026 자치법규 정비사례집.pdf",
     "자치법규 의견제시 주제별 주요 사례.pdf",
-    "자치법규 입안 길라잡이(2026).pdf",
     "지방자치단체의 재의·제소 조례 모음집.pdf"
 ]
 

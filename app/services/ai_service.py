@@ -628,13 +628,15 @@ def call_gemini_api(
                         cached_content=cached_content,
                         generation_config=generation_config
                     )
-                except Exception as e_cached:
-                    add_server_log("WARNING", "CACHE", f"Cached 모델 인스턴스화 실패({e_cached}), 표준 모델로 호출")
+                    response = model.generate_content(full_prompt)
+                except Exception as e_cached_call:
+                    add_server_log("WARNING", "CACHE", f"Cached 모델 호출 실패({e_cached_call}). 캐시를 즉시 해제하고 표준 모델로 즉시 전환합니다.")
+                    cached_content = None
                     model = genai.GenerativeModel(target_model, generation_config=generation_config)
+                    response = model.generate_content(full_prompt)
             else:
                 model = genai.GenerativeModel(target_model, generation_config=generation_config)
-
-            response = model.generate_content(full_prompt)
+                response = model.generate_content(full_prompt)
             elapsed = time.time() - t0
 
             text_result = ""
