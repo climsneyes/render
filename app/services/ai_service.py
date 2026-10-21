@@ -5,7 +5,6 @@ from typing import Dict, List, Any, Optional
 import google.generativeai as genai
 from app.config import settings
 from app.api.logs import add_server_log
-from app.services.legal_knowledge_base import LEGAL_KNOWLEDGE_BASE_4_BOOKS
 from app.services.cache_service import get_ready_cache
 
 
@@ -459,7 +458,6 @@ def create_analysis_prompt(
         f"- 2) 주민의 권리를 제한하거나 의무를 부과하면서 법적 근거가 명확히 없는 경우\n"
         f"- 3) 자치사무가 아닌 국가사무를 침해하는 경우\n"
         f"- 그 외에는 '위법 가능성 있음'이라고 판단하지 않는다.\n\n"
-        f"{LEGAL_KNOWLEDGE_BASE_4_BOOKS}\n\n"
         f"{sep_line}\n"
         f"📄 **[검토 대상 조례 원문 시작]**\n"
         f"{sep_line}\n"
