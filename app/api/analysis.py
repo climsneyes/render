@@ -74,7 +74,7 @@ def api_run_analysis(req: RunAnalysisRequest):
             "success": True,
             "analysis": analysis_result,
             "superior_laws_content": superior_laws_content,
-            "relevant_guidelines": relevant_guidelines,
+            "relevant_guidelines": [],
             "prompt_length": len(prompt)
         }
 

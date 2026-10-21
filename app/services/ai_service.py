@@ -27,8 +27,13 @@ def get_available_models(api_key: str) -> List[str]:
             methods = getattr(m, 'supported_generation_methods', []) or []
             if 'generateContent' in methods:
                 name_clean = m.name.replace('models/', '')
-                # 종료/제외 모델 (3.8-flash, 2.5-pro, 1.x, 2.0 제외)
-                if not any(excluded in name_clean for excluded in ['3.8', 'pro', 'gemini-1.0', 'gemini-1.5', 'gemini-2.0']):
+                # 비언어/특수/종료 모델 제외
+                excluded_keywords = [
+                    '3.8', 'pro', 'gemini-1.0', 'gemini-1.5', 'gemini-2.0',
+                    'tts', 'image', 'clip', 'transcribe', 'robotics', 'computer-use',
+                    'lyria', 'banana', 'deep-research', 'embedding'
+                ]
+                if not any(excluded in name_clean.lower() for excluded in excluded_keywords):
                     discovered.append(name_clean)
 
         if discovered:
@@ -660,13 +665,13 @@ def call_gemini_api(
 
             raw_len = len(text_result) if text_result else 0
 
-            # 비정상 반복 루프 감지 (글자수 4만자 초과 or MAX_TOKENS 도달 3만자 이상)
-            is_runaway_loop = raw_len > 40000 or (
-                str(finish_reason) in ['2', 'FinishReason.MAX_TOKENS', 'MAX_TOKENS'] and raw_len > 30000
+            # 비정상 반복 루프 감지 (글자수 3.5만자 초과 or MAX_TOKENS 도달 3만자 이상)
+            is_runaway_loop = raw_len > 35000 or (
+                str(finish_reason) in ['2', 'FinishReason.MAX_TOKENS', 'MAX_TOKENS'] and raw_len > 25000
             )
-            if is_runaway_loop and target_model != candidate_models[-1]:
-                add_server_log("WARNING", "API", f"모델 {target_model} 비정상 반복 루프 감지 ({raw_len:,}자). 다음 모델로 자동 전환합니다.")
-                continue
+            if is_runaway_loop:
+                add_server_log("WARNING", "API", f"모델 {target_model} 장문/반복 루프 감지 ({raw_len:,}자). 중복을 자동 정리하고 필수 보고서로 수습합니다.")
+                text_result = clean_and_repair_markdown_report(text_result[:30000])
 
             cleaned_text = clean_and_repair_markdown_report(text_result) if text_result else ""
             if cleaned_text and len(cleaned_text.strip()) > 50:
