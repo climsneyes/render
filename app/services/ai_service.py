@@ -117,7 +117,7 @@ def diagnose_gemini_api(api_key: str) -> Dict[str, Any]:
 
 
 def clean_and_repair_markdown_report(text: str) -> str:
-    """반복 루프 제거, 공백 패딩 폭탄 정제, 인사말 제거 및 마크다운 구조 자동 보정"""
+    """반복 루프 제거, 공백/대시 폭탄 정제, 인사말 제거 및 마크다운 구조 자동 보정"""
     if not text:
         return ""
 
@@ -131,13 +131,25 @@ def clean_and_repair_markdown_report(text: str) -> str:
     # 마크다운 표 파이프(|) 사이의 비정상 공백 압축
     text = re.sub(r'\|\s{3,}\|', '| |', text)
 
+    # 3. 비정상 대시/구분선/하이픈 반복 라인 필터링
     lines = text.split('\n')
     cleaned_lines = []
     repeat_count = 0
     last_line = None
+    dash_streak = 0
 
     for line in lines:
         stripped = line.strip()
+        # 하이픈, 등호, 언더바, 콜론 등 구분 기호로만 꽉 찬 라인 감지
+        is_dash_or_separator = stripped and len(stripped) > 5 and set(stripped) <= {'-', '=', '_', '|', ':', ' '}
+        if is_dash_or_separator:
+            dash_streak += 1
+            if dash_streak <= 1:
+                cleaned_lines.append(line[:60])  # 너무 긴 대시 라인은 최대 60자로 정규화
+            continue
+        else:
+            dash_streak = 0
+
         if stripped and stripped == last_line:
             repeat_count += 1
             if repeat_count <= 2:
@@ -552,8 +564,10 @@ def create_analysis_prompt(
         "- 마크다운 표(| ... |)를 작성할 때 컬럼 너비를 맞추기 위해 연속된 공백(스페이스)을 절대 넣지 마십시오.\n"
         "- 각 셀은 반드시 `| 내용 | 내용 |` 형태로 작성하고 불필요한 공백을 추가하지 마십시오.\n\n"
         "1. [비교분석 요약표(조문별)]\n"
-        "- 표의 컬럼: 조문(내 조례) | 주요 내용 | 타 시도 유사 조항 | 적법 여부 | 검토 의견\n"
-        "- 내 조례의 각 조문별 핵심을 간결하게 표로 정리 (각 셀 1~2줄로 압축)\n\n"
+        "- 표는 반드시 아래 4개 컬럼으로 간결하게 작성하십시오:\n"
+        "| 조문 | 주요 내용 | 적법 여부 | 검토 의견 |\n"
+        "|:---|:---|:---|:---|\n"
+        "| 제1조 | ... | 적법 | ... |\n\n"
         "2. [내 조례의 차별점 요약]\n"
         "- 타 시도 조례와 비교하여 구조적으로 다른 점, 내 조례만의 고유한 규정 등을 1~2개 문단으로 명확히 요약\n\n"
         "3. [원칙별 실질적 위법성 판정 결과]\n"
@@ -564,13 +578,16 @@ def create_analysis_prompt(
         "  * b) 법률유보의 원칙 (지방자치법 제28조 제1항 단서 권리제한·의무부과 침익 여부)\n"
         "  * c) 법령우위의 원칙 (상위 법률·시행령 명령·금지 위반 및 입법 취지 훼손 여부)\n"
         "  * d) 권한분립의 원칙 (지방의회의 단체장 고유권한 인사권·재산관리권 침해 여부)\n\n"
-        "4. [조문별 구체적 위법성 검토 및 바람직한 수정 문구 대비표 (기존 조문 vs 수정 조문안)] - [핵심 필수 섹션]:\n"
-        "- 표의 컬럼: 조문(내 조례) | 구체적 위법 사유 및 판례/도서 근거 | 바람직한 수정 문구(안)\n"
-        "- 위법하거나 수정이 필요한 모든 조문에 대해 [자치법규 입안 길라잡이(2026)] 기준에 따른 완전한 대안 조문안을 반드시 제시하시오.\n\n"
+        "4. [조문별 구체적 위법성 검토 및 바람직한 수정 문구 대비 (기존 조문 vs 수정 조문안)] - [핵심 필수 섹션]:\n"
+        "⚠️ [작성 규칙]: 마크다운 표 대신 아래의 [조문별 상세 블록 형식]으로 각 조문마다 명확하고 읽기 쉽게 작성하십시오 (표 형식 금지):\n\n"
+        "  #### 📌 [조문 번호 및 제목]\n"
+        "  - **기존 조문 원안**: (해당 조문 문언 인용)\n"
+        "  - **위법 사유 및 판례/도서 근거**: (위법 이유, 대법원 판례 번호, 정비사례집/재의제소집 인용 근거)\n"
+        "  - **바람직한 수정 문구(안)**: (실무에서 즉시 조례 개정안으로 공포할 수 있는 완성된 대안 조문 문언 제시)\n\n"
         "5. [상위법령 적합성 종합 판정 및 결론] - [필수 완결]:\n"
         "- 최종 법적 적합성 등급: [원안 적법 / 일부 문구 수정 권고 / 중대 위법으로 제정 불가 중 명확히 택1]\n"
         "- 종합 총평: 어떤 구체적 이유 때문에 이러한 최종 판정이 내려졌는지 3~5줄로 명확하게 결론을 내리시오.\n\n"
-        "⚠️ [절대 엄수]: 중간에 글이 끊기지 않도록 분량을 균형 있게 안배하여, 4번 수정 문구 대비표와 5번 최종 종합 판정까지 반드시 100% 끝까지 완결하여 답변을 마칠 것.\n"
+        "⚠️ [절대 엄수]: 중간에 글이 끊기지 않도록 분량을 균형 있게 안배하여, 4번 수정 문구 대비와 5번 최종 종합 판정까지 반드시 100% 끝까지 완결하여 답변을 마칠 것.\n"
     )
 
     return prompt
@@ -683,10 +700,9 @@ def call_gemini_api(
                         p.text for p in response.candidates[0].content.parts if hasattr(p, 'text') and p.text
                     )
 
-            # 1. 스페이스 패딩 폭탄(연속 공백)을 1개로 일괄 압축하여 실질 내용 길이 복원
+            # 1. 스페이스/대시 패딩 폭탄 일괄 정제하여 실질 내용 길이 복원
             if text_result:
-                text_result = re.sub(r'[ \t]{3,}', ' ', text_result)
-                text_result = re.sub(r'\|\s{3,}\|', '| |', text_result)
+                text_result = clean_and_repair_markdown_report(text_result)
 
             raw_len = len(text_result) if text_result else 0
 
